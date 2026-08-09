@@ -1,0 +1,86 @@
+#name: Android Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # 方案1: x86_64 Runner (推荐 - 最简单)
+  build-x86:
+    name: Build on x86_64 (Recommended)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+      
+      - name: Grant execute permission
+        run: chmod +x ./gradlew
+      
+      - name: Build APK
+        run: ./gradlew assembleDebug
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+  # 方案2: Box64 模拟
+  build-arm64-box64:
+    name: ARM64 with Box64
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      
+      - name: Install Box64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget git build-essential cmake
+          cd /tmp
+          git clone --depth 1 https://github.com/ptitSeb/box64.git
+          cd box64
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+      
+      - name: Build with Box64
+        env:
+          BOX64_LOG: 0
+        run: ./gradlew assembleDebug
+
+  # 方案3: Docker
+  build-docker:
+    name: Build with Docker
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build with Docker
+        run: |
+          docker build --build-arg JAVA_VERSION=17 -t android-build:latest .
+          docker run --rm -v $(pwd):/app -w /app android-build:latest \
+            ./gradlew assembleDebug
